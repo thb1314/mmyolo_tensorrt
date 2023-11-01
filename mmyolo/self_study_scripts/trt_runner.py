@@ -4,8 +4,10 @@ import tensorrt as trt
 import numpy as np
 import torch
 import os
+import json
 
 
+np.bool = np.bool_
 logger = trt.Logger(trt.Logger.ERROR)
 trt.init_libnvinfer_plugins(logger, '')
 
@@ -75,10 +77,16 @@ def allocate_buffers(ori_inputs, ori_outputs, engine, context, stream):
     return inputs, outputs, bindings
 
 
-def build_engine(onnx_file_path, enable_fp16 = False, max_batch_size = 1, write_engine=True):
+def build_engine(onnx_file_path, enable_fp16 = False, int8_calibrator=None,
+                 max_batch_size = 1, write_engine=True, dynamic_range_file=None, enable_int8=False, profiled=True):
 
     onnx_path = os.path.realpath(onnx_file_path) 
-    engine_file_path = ".".join(onnx_path.split('.')[:-1] + ['engine' if not enable_fp16 else 'fp16.engine'])
+    engine_suffix = 'engine'
+    if enable_fp16:
+        engine_suffix = 'fp16.engine'
+    if int8_calibrator is not None or dynamic_range_file is not None or enable_int8:
+        engine_suffix = 'int8.engine'
+    engine_file_path = ".".join(onnx_path.split('.')[:-1] + [engine_suffix])
     print('engine_file_path', engine_file_path)
     G_LOGGER = trt.Logger(trt.Logger.INFO)
     if os.path.exists(engine_file_path):
@@ -90,9 +98,15 @@ def build_engine(onnx_file_path, enable_fp16 = False, max_batch_size = 1, write_
             trt.OnnxParser(network, G_LOGGER) as parser:
         
         config = builder.create_builder_config()
-        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, torch.cuda.get_device_properties('cuda:0').total_memory)
+        if profiled:
+            config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, torch.cuda.get_device_properties('cuda:0').total_memory // 2)
         if enable_fp16:
-            config.set_flag(trt.BuilderFlag.FP16)
+            if builder.platform_has_fast_fp16:
+                config.set_flag(trt.BuilderFlag.FP16)
+            else:
+                logger.log(trt.Logger.WARNING, "FP16 not supported on this platform.")
+
         print('Loading ONNX file from path {} ...'.format(onnx_file_path))
         with open(onnx_file_path, 'rb') as model:
             print('Beginning ONNX file parsing')
@@ -116,16 +130,58 @@ def build_engine(onnx_file_path, enable_fp16 = False, max_batch_size = 1, write_
         for value_info in input_names:
             input_name2shape[value_info.name] = [getattr(item, 'dim_value', getattr(item, 'dim_param')) for item in value_info.type.tensor_type.shape.dim]
         
-        profile = builder.create_optimization_profile()
-        for name, shape in input_name2shape.items():
-            one_shape = shape[0:]
-            one_shape[0] = 1
-            max_shape = shape[0:]
-            max_shape[0] = max_batch_size
-            one_shape = tuple([int(item) for item in one_shape])
-            max_shape = tuple([int(item) for item in max_shape])
-            profile.set_shape(name, one_shape, max_shape, max_shape)
-        config.add_optimization_profile(profile)
+        def get_profile():
+            profile = builder.create_optimization_profile()
+            for name, shape in input_name2shape.items():
+                one_shape = shape[0:]
+                one_shape[0] = 1
+                max_shape = shape[0:]
+                max_shape[0] = max_batch_size
+                one_shape = tuple([int(item) for item in one_shape])
+                max_shape = tuple([int(item) for item in max_shape])
+                profile.set_shape(name, one_shape, max_shape, max_shape)
+            return profile
+        config.add_optimization_profile(get_profile())
+
+        if int8_calibrator is not None:
+            if builder.platform_has_fast_int8:
+                config.set_flag(trt.BuilderFlag.INT8)
+                config.int8_calibrator = int8_calibrator
+                config.set_calibration_profile(get_profile())
+            else:
+                logger.log(trt.Logger.WARNING, "INT8 not supported on this platform.")
+        elif dynamic_range_file is not None:
+            if builder.platform_has_fast_int8:
+                config.set_flag(trt.BuilderFlag.INT8)
+                config.set_calibration_profile(get_profile())
+                with open(dynamic_range_file, 'r') as f:
+                    dynamic_range = json.load(f)['tensorrt']['blob_range']
+                for input_index in range(network.num_inputs):
+                    input_tensor = network.get_input(input_index)
+                    if input_tensor.name in dynamic_range:
+                        amax = dynamic_range[input_tensor.name]
+                        input_tensor.dynamic_range = (-amax, amax)
+                        logger.log(trt.Logger.INFO, f'Set dynamic range of {input_tensor.name} as [{-amax}, {amax}]')
+                    else:
+                        logger.log(trt.Logger.ERROR, f'Set dynamic range of input_tensor {input_tensor.name} error')
+                for layer_index in range(network.num_layers):
+                    layer = network[layer_index]
+                    output_tensor = layer.get_output(0)
+                    if output_tensor.name in dynamic_range:
+                        amax = dynamic_range[output_tensor.name]
+                        output_tensor.dynamic_range = (-amax, amax)
+                        logger.log(trt.Logger.WARNING, f'Set dynamic range of {output_tensor.name} as [{-amax}, {amax}]')
+                    else:
+                        logger.log(trt.Logger.WARNING, f'Set dynamic range of output_tensor {output_tensor.name} error')
+            else:
+                logger.log(trt.Logger.WARNING, "INT8 not supported on this platform.")
+        elif enable_int8:
+            if builder.platform_has_fast_int8:
+                config.set_flag(trt.BuilderFlag.INT8)
+                config.set_calibration_profile(get_profile())
+            else:
+                logger.log(trt.Logger.WARNING, "INT8 not supported on this platform.")
+            
 
         serialized_engine = builder.build_serialized_network(network, config)
         if not serialized_engine:
@@ -155,13 +211,19 @@ def do_inference(context, bindings, inputs, outputs, stream):
     return [out.host for out in outputs]
 
 class TRTRunner(object):
-    def __init__(self, engine_or_onnx_path, max_batch_size=1, enable_fp16=False):
+    def __init__(self, engine_or_onnx_path, max_batch_size=1, enable_fp16=False, int8_calibrator=None, dynamic_range_file=None, enable_int8=False):
         self.engine_path = engine_or_onnx_path
         self.max_batch_size = max_batch_size
         self.enable_fp16 = enable_fp16
+        self.enable_int8 = enable_int8
+        self.dynamic_range_file = dynamic_range_file
+        self.int8_calibrator = int8_calibrator
         self.logger = trt.Logger(trt.Logger.INFO)
+        self.cuda_context = pycuda.autoinit.context
         self.engine = self._get_engine()
         self.context = self.engine.create_execution_context()
+        
+        
         self.stream = cuda.Stream()
         self.inputs = None
         self.outputs = None
@@ -169,11 +231,10 @@ class TRTRunner(object):
 
     def _get_engine(self):
         # If a serialized engine exists, use it instead of building an engine.
-        return build_engine(self.engine_path, enable_fp16=self.enable_fp16, max_batch_size=self.max_batch_size, write_engine=True)[0]
+        return build_engine(self.engine_path, enable_fp16=self.enable_fp16, int8_calibrator=self.int8_calibrator, max_batch_size=self.max_batch_size, write_engine=True, dynamic_range_file=self.dynamic_range_file, enable_int8=self.enable_int8)[0]
 
-    def detect(self, image_np_array, cuda_ctx = pycuda.autoinit.context):
-        if cuda_ctx:
-            cuda_ctx.push()
+    def detect(self, image_np_array, cuda_ctx = True):
+        self.cuda_context.push()
 
         batch_size = image_np_array.shape[0]
         # 动态输入
@@ -189,8 +250,7 @@ class TRTRunner(object):
         trt_outputs = do_inference(self.context, bindings=bindings, inputs=self.inputs, outputs=self.outputs,
                                           stream=self.stream)
         
-        if cuda_ctx:
-            cuda_ctx.pop()
+        self.cuda_context.pop()
         
         nInput = np.sum([self.engine.binding_is_input(i) for i in range(self.engine.num_bindings)])
         nOutput = self.engine.num_bindings - nInput

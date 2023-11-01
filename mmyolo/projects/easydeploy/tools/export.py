@@ -116,8 +116,7 @@ def main():
         }
     baseModel = build_model_from_cfg(args.config, args.checkpoint, args.device)
 
-    deploy_model = DeployModel(
-        baseModel=baseModel, postprocess_cfg=postprocess_cfg)
+    deploy_model = DeployModel(baseModel=baseModel, postprocess_cfg=postprocess_cfg)
     deploy_model.eval()
 
     fake_input = torch.randn(args.batch_size, 3,
@@ -141,24 +140,41 @@ def main():
         f.seek(0)
         onnx_model = onnx.load(f)
         onnx.checker.check_model(onnx_model)
-
-        # Fix tensorrt onnx output shape, just for view
-        if args.backend in (2, 3):
-            shapes = [
-                'batch_size', 1, 'batch_size', args.keep_topk, 4,
-                'batch_size', args.keep_topk, 'batch_size',
-                args.keep_topk
-            ]
-            for i in onnx_model.graph.output:
-                for j in i.type.tensor_type.shape.dim:
-                    j.dim_param = str(shapes.pop(0))
+    
     if args.simplify:
         try:
             import onnxsim
+            import copy
+            onnx_model_copy = copy.deepcopy(onnx_model)
             onnx_model, check = onnxsim.simplify(onnx_model)
             assert check, 'assert check failed'
         except Exception as e:
             print(f'Simplify failure: {e}')
+            onnx_model = onnx_model_copy
+
+    # Fix rotated box nms name
+    inputname2shape = {}
+    for item in onnx_model.graph.value_info:
+        inputname2shape[item.name] = item.type.tensor_type.shape.dim
+
+    is_rotate = False
+    for node in onnx_model.graph.node:
+        if 'NMS' in node.op_type and node.input[0] in inputname2shape and 5 == inputname2shape[node.input[0]][-1].dim_value:
+            is_rotate = True
+            node.op_type = node.op_type + '_ForRotateBox'
+
+    # Fix tensorrt onnx output shape, just for view
+    if args.backend in (2, 3):
+        shapes = [
+            'batch_size', 1, 'batch_size', args.keep_topk, 4 if not is_rotate else 5,
+            'batch_size', args.keep_topk, 'batch_size',
+            args.keep_topk
+        ]
+        for i in onnx_model.graph.output:
+            for j in i.type.tensor_type.shape.dim:
+                j.dim_param = str(shapes.pop(0))
+
+    
     onnx.save(onnx_model, save_onnx_path)
     print(f'ONNX export success, save into {save_onnx_path}')
 

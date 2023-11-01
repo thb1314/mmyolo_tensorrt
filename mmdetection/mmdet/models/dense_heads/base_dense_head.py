@@ -191,10 +191,10 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
         batch_img_metas = [
             data_samples.metainfo for data_samples in batch_data_samples
         ]
-
+        # print(self.forward.__code__)
         outs = self(x)
 
-        print(self.predict_by_feat.__code__)
+        # print(self.predict_by_feat.__code__)
         predictions = self.predict_by_feat(
             *outs, batch_img_metas=batch_img_metas, rescale=rescale)
         return predictions
@@ -256,7 +256,7 @@ class BaseDenseHead(BaseModule, metaclass=ABCMeta):
             assert len(cls_scores) == len(score_factors)
 
         num_levels = len(cls_scores)
-
+        
         featmap_sizes = [cls_scores[i].shape[-2:] for i in range(num_levels)]
         mlvl_priors = self.prior_generator.grid_priors(
             featmap_sizes,

@@ -356,7 +356,7 @@ class YOLOv5Head(BaseDenseHead):
 
         flatten_cls_scores = torch.cat(flatten_cls_scores, dim=1).sigmoid()
         flatten_bbox_preds = torch.cat(flatten_bbox_preds, dim=1)
-        print(self.bbox_coder.decode.__code__)
+        
         flatten_decoded_bboxes = self.bbox_coder.decode(
             flatten_priors[None], flatten_bbox_preds, flatten_stride)
 
@@ -394,7 +394,7 @@ class YOLOv5Head(BaseDenseHead):
                 scores = scores[conf_inds, :]
                 objectness = objectness[conf_inds]
 
-            print('objectness', objectness)
+            # print('objectness', objectness)
             
             if objectness is not None:
                 # conf = obj_conf * cls_conf

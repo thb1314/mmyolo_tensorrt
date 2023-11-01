@@ -173,7 +173,7 @@ def distance2bbox(
 
     bboxes = torch.stack([x1, y1, x2, y2], -1)
 
-    print('max_shape', max_shape)
+    # print('max_shape', max_shape)
     if max_shape is not None:
         if bboxes.dim() == 2 and not torch.onnx.is_in_onnx_export():
             # speed up

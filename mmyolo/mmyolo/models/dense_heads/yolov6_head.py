@@ -120,6 +120,7 @@ class YOLOv6HeadModule(BaseModule):
                     kernel_size=1))
 
     def init_weights(self):
+        print('call init_weights')
         super().init_weights()
         bias_init = bias_init_with_prob(0.01)
         for conv in self.cls_preds:
@@ -149,6 +150,7 @@ class YOLOv6HeadModule(BaseModule):
                        reg_pred: nn.Module) -> Tuple[Tensor, Tensor]:
         """Forward feature of a single scale level."""
         y = stem(x)
+        
         cls_x = y
         reg_x = y
         cls_feat = cls_conv(cls_x)
@@ -156,7 +158,7 @@ class YOLOv6HeadModule(BaseModule):
 
         cls_score = cls_pred(cls_feat)
         bbox_pred = reg_pred(reg_feat)
-        
+
         return cls_score, bbox_pred
 
 
@@ -313,6 +315,7 @@ class YOLOv6Head(YOLOv5Head):
         flatten_pred_bboxes = self.bbox_coder.decode(
             self.flatten_priors_train[..., :2], flatten_pred_bboxes,
             self.stride_tensor[:, 0])
+
         pred_scores = torch.sigmoid(flatten_cls_preds)
 
         if current_epoch < self.initial_epoch:

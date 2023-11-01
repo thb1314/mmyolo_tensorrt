@@ -107,7 +107,6 @@ class SingleStageDetector(BaseDetector):
                     the last dimension 4 arrange as (x1, y1, x2, y2).
         """
         x = self.extract_feat(batch_inputs)
-        print(self.bbox_head.predict.__code__)
         results_list = self.bbox_head.predict(
             x, batch_data_samples, rescale=rescale)
         batch_data_samples = self.add_pred_to_datasample(

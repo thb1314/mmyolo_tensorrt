@@ -329,23 +329,25 @@ def filter_scores_and_topk(scores, score_thr, topk, results=None):
                 The filtered results. The shape of each item is \
                 (num_bboxes_filtered, N).
     """
+    # print('scores.shape', scores.shape)
+    # print('scores', scores)
     valid_mask = scores > score_thr
-    print('valid_mask.shape', valid_mask.shape)
+    # print('valid_mask.shape', valid_mask.shape)
     scores = scores[valid_mask]
-    print('scores.shape', scores.shape)
+    # print('scores.shape', scores.shape)
     valid_idxs = torch.nonzero(valid_mask)
-    print('valid_idxs.shape', valid_idxs.shape)
+    # print('valid_idxs.shape', valid_idxs.shape)
 
     num_topk = min(topk, valid_idxs.size(0))
     # torch.sort is actually faster than .topk (at least on GPUs)
     scores, idxs = scores.sort(descending=True)
     scores = scores[:num_topk]
-    print('idxs.shape', idxs.shape)
+    # print('idxs.shape', idxs.shape)
     topk_idxs = valid_idxs[idxs[:num_topk]]
     keep_idxs, labels = topk_idxs.unbind(dim=1)
-    print('topk_idxs.shape', topk_idxs.shape)
-    print('keep_idxs.shape', keep_idxs.shape)
-    print('labels.shape', labels.shape)
+    # print('topk_idxs.shape', topk_idxs.shape)
+    # print('keep_idxs.shape', keep_idxs.shape)
+    # print('labels.shape', labels.shape)
 
     filtered_results = None
     if results is not None:

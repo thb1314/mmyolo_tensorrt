@@ -174,9 +174,9 @@ def inference_detector(
 
         # forward the model
         with torch.no_grad():
-            def print_func_info(function):
-                print(function.__code__)
-            print_func_info(model.test_step)
+            # def print_func_info(function):
+                # print(function.__code__)
+            # print_func_info(model.test_step)
             results = model.test_step(data_)[0]
 
         result_list.append(results)

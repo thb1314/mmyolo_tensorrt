@@ -202,6 +202,7 @@ def main():
         for num_dets, bboxes, scores, labels, pad_param, scale_factor, (h, w), file in \
             zip(batched_num_dets, batched_bboxes, batched_scores, batched_labels, 
                 pad_param_list, scale_factor_list, shape_list, file_list):
+            
             num_dets = int(num_dets)
             scores = scores[:num_dets]
             bboxes = bboxes[:num_dets]

@@ -142,7 +142,7 @@ class BaseModel(BaseModule):
             list: The predictions of given data.
         """
         data = self.data_preprocessor(data, False)
-        print(self._run_forward.__code__)
+        # print(self._run_forward.__code__)
         return self._run_forward(data, mode='predict')  # type: ignore
 
     def parse_losses(
@@ -323,7 +323,7 @@ class BaseModel(BaseModule):
         Returns:
             dict or list: Results of training or testing mode.
         """
-        print(self.forward.__code__)
+        # print(self.forward.__code__)
         if isinstance(data, dict):
             results = self(**data, mode=mode)
         elif isinstance(data, (list, tuple)):

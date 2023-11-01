@@ -25,7 +25,7 @@ coco_basename2imgid = {img_info['file_name']:img_id for img_id, img_info in coco
 
 # evaluate tensort result 
 annotations = []
-with open(os.path.join(mmyolo_dir, 'self_study_scripts', 'dynamic_batch_trt_result.json'), 'r', encoding='utf-8') as fp:
+with open(os.path.join(mmyolo_dir, 'self_study_scripts', 'dynamic_batch_trt_result_int8.json'), 'r', encoding='utf-8') as fp:
     tensorrt_result_dict = json.load(fp)
 for filepath, info in tensorrt_result_dict.items():
     basename = os.path.basename(filepath)

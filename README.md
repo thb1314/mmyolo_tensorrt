@@ -1,5 +1,6 @@
 # yolo系列模型的部署、精度对齐与int8量化加速
 
+> B站教程地址：https://www.bilibili.com/video/BV1Ds4y1k7yr/
 
 ## 一、安装
 

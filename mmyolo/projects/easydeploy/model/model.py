@@ -108,6 +108,10 @@ class DeployModel(nn.Module):
         cls_scores = cls_scores_wo_sigmoid.sigmoid()
         
         box_dim = int(bbox_preds[0].size(1))
+        if box_dim % 4 == 0:
+            box_dim = 4
+        elif box_dim % 5 == 0:
+            box_dim = 5
         flatten_bbox_preds = [
             bbox_pred.permute(0, 2, 3, 1).reshape(-1, int(bbox_pred.shape[1] * bbox_pred.shape[2] * bbox_pred.shape[3] // box_dim), box_dim)
             for bbox_pred in bbox_preds
@@ -148,15 +152,12 @@ class DeployModel(nn.Module):
 
     def forward(self, inputs: Tensor):
         neck_outputs = self.baseModel(inputs)
-        
         if 3 == len(neck_outputs) and neck_outputs[-1][-1].shape[1] == 1:
             neck_outputs = list(neck_outputs)
             neck_outputs[1] = list(neck_outputs[1])
             for i, (bboxes, angle) in enumerate(zip(neck_outputs[1], neck_outputs[2])):
                 neck_outputs[1][i] = torch.cat([bboxes, angle], dim=1)
             neck_outputs = tuple(neck_outputs[:2])
-        else:
-            neck_outputs = neck_outputs[:2]
             
         if self.with_postprocess:
             return self.pred_by_feat(*neck_outputs)

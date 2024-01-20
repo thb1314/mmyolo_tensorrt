@@ -263,7 +263,9 @@ def main():
         }
     }
     
-    model_mqbench = prepare_by_platform(torch_model.train(), BackendType.Tensorrt, prepare_custom_config_dict)
+    # 这里为了兼容qat 不合并 bn的情况 用了 train 模式，但是会因为head多返回参数而报错
+    # 所以如果仅用ptq 就直接设置为eval模式即可
+    model_mqbench = prepare_by_platform(torch_model.eval(), BackendType.Tensorrt, prepare_custom_config_dict)
     model_mqbench.to(device)
     
     model_mqbench.eval()
